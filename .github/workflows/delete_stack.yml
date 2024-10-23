@@ -1,60 +1,60 @@
-name: Delete Security Services
+name: Delete CloudFormation Stacks
 
 on:
   workflow_dispatch:
     inputs:
-      services:
-        description: 'Specify the services to delete (access-analyser, guard-duty, inspector, macie, securityhub, detective, config). Use a comma to separate multiple services.'
+      stack_set_name:
+        description: 'Name of the Stack Set to delete'
         required: true
-      aws-region:
-        description: 'AWS region where the stack and stackset are deployed'
+        default: 'Access-analyser'
+      stack_name:
+        description: 'Name of the Stack to delete'
         required: true
-        default: 'us-east-1'
-        type: string
-
-permissions:
-  id-token: write
-  contents: read
+        default: 'StackSet-Access-analyser'  # Provide a default if desired
 
 jobs:
-  delete-services:
+  delete_stacks:
     runs-on: ubuntu-latest
-    outputs:
-      services: ${{ steps.set-services.outputs.services }}
     steps:
-      - name: Set Services from Input
-        id: set-services
-        run: |
-          if [[ -z "${{ github.event.inputs.services }}" ]]; then
-            echo "No services specified. Skipping deletion."
-            echo "::set-output name=services::none"
-          else
-            echo "::set-output name=services::${{ github.event.inputs.services }}"
-          fi
+      - name: Checkout repository
+        uses: actions/checkout@v2
 
-  delete-stack:
-    if: ${{ contains(needs.delete-services.outputs.services, 'access-analyser') || contains(needs.delete-services.outputs.services, 'guard-duty') || contains(needs.delete-services.outputs.services, 'inspector') || contains(needs.delete-services.outputs.services, 'macie') || contains(needs.delete-services.outputs.services, 'securityhub') || contains(needs.delete-services.outputs.services, 'detective') || contains(needs.delete-services.outputs.services, 'config') }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Delete Stacks for Specified Services
-        run: |
-          services="${{ needs.delete-services.outputs.services }}"
-          IFS=',' read -ra service_list <<< "$services"
-          for service in "${service_list[@]}"; do
-            echo "Deleting stacks for service: $service"
-            aws cloudformation delete-stack --stack-name $service --region ${{ github.event.inputs.aws-region }} --retain-resources
-          done
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-  delete-stackset:
-    if: ${{ contains(needs.delete-services.outputs.services, 'access-analyser') || contains(needs.delete-services.outputs.services, 'guard-duty') || contains(needs.delete-services.outputs.services, 'inspector') || contains(needs.delete-services.outputs.services, 'macie') || contains(needs.delete-services.outputs.services, 'securityhub') || contains(needs.delete-services.outputs.services, 'detective') || contains(needs.delete-services.outputs.services, 'config') }}
-    runs-on: ubuntu-latest
-    needs: delete-stack
-    steps:
-      - name: Delete StackSets for Specified Services
+      - name: Delete Stack Instances
         run: |
-          services="${{ needs.delete-services.outputs.services }}"
-          IFS=',' read -ra service_list <<< "$services"
-          for service in "${service_list[@]}"; do
-            echo "Deleting stackset for service: $service"
-            aws cloudformation delete-stack-set --stack-set-name $service --region ${{ github.event.inputs.aws-region }}
-          done
+          aws cloudformation delete-stack-instances \
+            --stack-set-name ${{ github.event.inputs.stack_set_name }} \
+            --deployment-targets Accounts=${{ secrets.TARGET_ACCOUNT }} \
+            --regions us-east-1 \
+            --retain-stacks
+
+      - name: Wait for Stack Instances Deletion
+        run: |
+          echo "Waiting for stack instances deletion..."
+          # Optional: Add logic to wait for stack instances deletion if necessary
+
+      - name: Delete Stack Set
+        run: |
+          aws cloudformation delete-stack-set \
+            --stack-set-name ${{ github.event.inputs.stack_set_name }}
+
+      - name: Wait for Stack Set Deletion
+        run: |
+          echo "Waiting for stack set deletion..."
+          # Optional: Add logic to wait for stack set deletion if necessary
+
+      - name: Delete Stacks
+        run: |
+          echo "Deleting stack: ${{ github.event.inputs.stack_name }}"
+          aws cloudformation delete-stack --stack-name "${{ github.event.inputs.stack_name }}"
+
+      - name: Wait for Stack Deletions
+        run: |
+          echo "Waiting for stacks deletion..."
+          # Optional: Add logic to wait for stack deletions if necessary
